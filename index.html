@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f5fbf">
+<title>식사캠</title>
+<!-- 앱 설치용 파일들 (Apps Script에서 열 때는 없어도 동작에 영향 없음) -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<script src="config.js"></script>
+<style>
+  :root {
+    --bg: #f4f6fa; --card: #ffffff; --ink: #1b2330; --muted: #5c6778; --line: #dde3ec;
+    --brand: #1f5fbf; --brand-ink: #ffffff; --ok: #1d8a4e; --warn: #b26a00; --err: #c0392b;
+    --chip: #eef3fc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #11151c; --card: #1a2029; --ink: #e8edf4; --muted: #9aa6b8; --line: #2c3542;
+      --brand: #4d8ae8; --chip: #22314a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #11151c; --card: #1a2029; --ink: #e8edf4; --muted: #9aa6b8; --line: #2c3542;
+    --brand: #4d8ae8; --chip: #22314a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif; font-size: 17px; }
+  body { padding: 16px 16px calc(24px + env(safe-area-inset-bottom)); max-width: 560px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  header h1 { font-size: 22px; margin: 0; letter-spacing: -0.5px; }
+  header h1 span { color: var(--brand); }
+  .who { font-size: 14px; color: var(--muted); text-align: right; }
+  .who button { font-size: 13px; padding: 2px 6px; margin-top: 2px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  .hidden { display: none !important; }
+  button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 10px 14px; }
+  button.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); font-weight: bold; }
+  button:disabled { opacity: .5; cursor: default; }
+  .shoot { width: 100%; padding: 26px 10px; font-size: 24px; border-radius: 18px; display: flex; align-items: center; justify-content: center; gap: 12px; }
+  .shoot svg { width: 34px; height: 34px; }
+  .status { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; font-size: 14px; }
+  .pill { padding: 5px 10px; border-radius: 99px; background: var(--chip); color: var(--muted); }
+  .pill.ok { color: var(--ok); } .pill.warn { color: var(--warn); } .pill.err { color: var(--err); }
+  input[type=text], input[type=password], input[type=search] { font: inherit; width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); }
+  label { display: block; font-weight: bold; margin-bottom: 8px; }
+  .msg { margin-top: 10px; font-size: 15px; }
+  .msg.err { color: var(--err); } .msg.ok { color: var(--ok); }
+  #preview { width: 100%; border-radius: 10px; display: block; background: #000; }
+  .cands { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+  .cand { display: flex; justify-content: space-between; align-items: center; text-align: left; padding: 12px 14px; }
+  .cand.sel { border: 2px solid var(--brand); background: var(--chip); font-weight: bold; }
+  .cand small { color: var(--muted); font-weight: normal; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .big { padding: 16px; font-size: 19px; }
+  h2 { font-size: 17px; margin: 0 0 10px; }
+  ul.today { list-style: none; margin: 0; padding: 0; }
+  ul.today li { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  ul.today li:last-child { border-bottom: 0; }
+  .st-ok { color: var(--ok); } .st-wait { color: var(--warn); }
+  .demo { font-size: 13px; color: var(--warn); text-align: center; margin-bottom: 10px; }
+  #searchList { max-height: 260px; overflow-y: auto; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🍱 식사<span>캠</span></h1>
+  <div class="who" id="who"></div>
+</header>
+<div class="demo hidden" id="demoNote">체험 모드: 서버에 연결되어 있지 않아 실제로 전송되지 않습니다.</div>
+
+<!-- 로그인 -->
+<section class="card hidden" id="loginView">
+  <label for="pin">배달인력 PIN</label>
+  <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="숫자 4자리">
+  <button class="primary big" style="width:100%;margin-top:12px" id="loginBtn">시작하기</button>
+  <div class="msg err" id="loginMsg"></div>
+</section>
+
+<!-- 메인 -->
+<section class="hidden" id="mainView">
+  <div class="card">
+    <button class="primary shoot" id="shootBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      배달 사진 찍기
+    </button>
+    <input type="file" id="camera" accept="image/*" capture="environment" class="hidden">
+    <div class="status">
+      <span class="pill" id="gpsPill">위치 찾는 중…</span>
+      <span class="pill" id="queuePill">전송 대기 0건</span>
+    </div>
+  </div>
+  <div class="card hidden" id="installCard">
+    <h2>📲 식사캠을 앱으로 설치하세요</h2>
+    <div style="font-size:15px;color:var(--muted);margin-bottom:10px">설치하면 바탕화면 아이콘으로 바로 열리고, 통신이 안 되는 곳에서도 열립니다.</div>
+    <button class="primary big" style="width:100%" id="installBtn">앱 설치하기</button>
+  </div>
+  <div class="card">
+    <h2>오늘 찍은 사진 <span id="todayCount" style="color:var(--muted);font-weight:normal"></span></h2>
+    <ul class="today" id="todayList"></ul>
+  </div>
+</section>
+
+<!-- 촬영 후 확인 -->
+<section class="card hidden" id="confirmView">
+  <img id="preview" alt="촬영한 사진">
+  <h2 style="margin-top:14px" id="matchTitle">대상자 선택</h2>
+  <div class="cands" id="cands"></div>
+  <button style="width:100%" id="searchToggle">다른 대상자 찾기</button>
+  <div class="hidden" id="searchBox" style="margin-top:10px">
+    <input type="search" id="searchInput" placeholder="이름 검색">
+    <div class="cands" id="searchList"></div>
+  </div>
+  <div class="row" style="margin-top:14px">
+    <button class="big" id="retakeBtn">다시 찍기</button>
+    <button class="primary big" id="saveBtn" disabled>저장·전송</button>
+  </div>
+</section>
+
+<script>
+/* ================= 설정 ================= */
+// 앱으로 설치해 쓸 때(GitHub Pages)는 config.js 에 적은 웹앱 URL로 통신합니다.
+const API_URL = window.SIKCAM_API_URL || '';
+const MAX_SIZE = 1600;        // 저장 사진 긴 변(px)
+const MAX_PHOTO_AGE_MIN = 10; // 이보다 오래된 사진(갤러리 사진 등)은 거부
+
+/* ================= 서버 통신 ================= */
+const hasGas = !!(window.google && google.script && google.script.run);
+const isDemo = !hasGas && !API_URL;
+
+function api(action, data) {
+  data = Object.assign({ pin: state.pin }, data);
+  if (hasGas) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(r => r && r.error ? reject(new Error(r.error)) : resolve(r))
+        .withFailureHandler(reject)
+        .apiRun(action, data);
+    });
+  }
+  if (API_URL) {
+    return fetch(API_URL, { method: 'POST', body: JSON.stringify({ action, data }) })
+      .then(r => r.json())
+      .then(r => { if (r.error) throw new Error(r.error); return r; });
+  }
+  return demoApi(action, data);
+}
+
+/* 체험 모드: 현재 위치 주변에 가상의 대상자를 둡니다 */
+function demoApi(action, data) {
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  if (action === 'login') {
+    return wait(300).then(() => {
+      if (!data.pin) throw new Error('PIN을 입력하세요.');
+      return { staff: '체험사용자', settings: { autoMatchM: 80 } };
+    });
+  }
+  if (action === 'recipients') {
+    const base = state.pos || { lat: 34.4868, lng: 126.2634 };
+    const off = (dLat, dLng) => ({ lat: base.lat + dLat, lng: base.lng + dLng });
+    return wait(300).then(() => ({ recipients: [
+      Object.assign({ name: '강영례', address: '진도읍' }, off(0.0001, 0.0001)),
+      Object.assign({ name: '김순자', address: '진도읍' }, off(0.0004, -0.0003)),
+      Object.assign({ name: '박말순', address: '진도읍' }, off(-0.003, 0.002)),
+      { name: '이복남', address: '군내면', lat: null, lng: null },
+      { name: '최옥자', address: '고군면', lat: null, lng: null },
+    ] }));
+  }
+  if (action === 'upload') return wait(800).then(() => ({ ok: true, registered: data.lat != null && data.distance == null }));
+}
+
+/* ================= 상태 ================= */
+const state = {
+  pin: lsGet('sikcam.pin') || '',
+  staff: lsGet('sikcam.staff') || '',
+  autoMatchM: 80,
+  recipients: JSON.parse(lsGet('sikcam.recipients') || '[]'),
+  pos: null,          // {lat,lng,accuracy,time}
+  shot: null,         // {img, takenAt, pos}
+  selected: null,     // {name, distance, method}
+  uploading: false,
+};
+const $ = id => document.getElementById(id);
+
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+function show(view) {
+  ['loginView', 'mainView', 'confirmView'].forEach(v => $(v).classList.toggle('hidden', v !== view));
+  window.scrollTo(0, 0);
+}
+
+/* ================= 로그인 ================= */
+async function login(pin) {
+  $('loginMsg').textContent = '';
+  $('loginBtn').disabled = true;
+  try {
+    state.pin = pin;
+    const r = await api('login', {});
+    state.staff = r.staff;
+    state.autoMatchM = (r.settings && r.settings.autoMatchM) || 80;
+    lsSet('sikcam.pin', pin); lsSet('sikcam.staff', r.staff);
+    enterMain();
+  } catch (e) {
+    // 통신이 안 될 때는 이전에 로그인한 정보로 계속 사용
+    if (state.staff && /network|fetch|NetworkError|Failed/i.test(String(e))) { enterMain(); return; }
+    $('loginMsg').textContent = e.message || '로그인에 실패했습니다.';
+    show('loginView');
+  } finally { $('loginBtn').disabled = false; }
+}
+
+function logout() {
+  lsDel('sikcam.pin'); lsDel('sikcam.staff');
+  state.pin = ''; state.staff = '';
+  $('who').innerHTML = '';
+  show('loginView');
+}
+
+function enterMain() {
+  $('who').innerHTML = `${esc(state.staff)} 님<br><button id="logoutBtn">로그아웃</button>`;
+  $('logoutBtn').onclick = logout;
+  show('mainView');
+  refreshRecipients();
+  renderToday();
+  processQueue();
+}
+
+async function refreshRecipients() {
+  try {
+    const r = await api('recipients', {});
+    state.recipients = r.recipients;
+    lsSet('sikcam.recipients', JSON.stringify(r.recipients));
+    if (state.shot && !$('searchBox').classList.contains('hidden')) renderSearch($('searchInput').value.trim());
+  } catch (e) { /* 통신이 안 되면 저장된 명단 사용 */ }
+}
+
+/* ================= GPS ================= */
+function startGps() {
+  if (!navigator.geolocation) { setGps('이 기기는 위치를 지원하지 않습니다', 'err'); return; }
+  navigator.geolocation.watchPosition(p => {
+    state.pos = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, time: Date.now() };
+    const a = Math.round(p.coords.accuracy);
+    setGps(`위치 확인됨 (오차 ${a}m)`, a <= 30 ? 'ok' : 'warn');
+  }, err => {
+    setGps(err.code === 1 ? '위치 권한을 허용해 주세요' : '위치를 찾지 못했습니다', 'err');
+  }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
+}
+function setGps(text, cls) { const el = $('gpsPill'); el.textContent = '📍 ' + text; el.className = 'pill ' + (cls || ''); }
+
+function distanceM(a, b) {
+  const R = 6371000, rad = x => x * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+/* ================= 촬영 ================= */
+// 카메라가 열려 있는 동안 최신 대상자 명단을 받아 둠 (시트에 새로 넣은 대상자 반영)
+$('shootBtn').onclick = () => { $('camera').value = ''; $('camera').click(); refreshRecipients(); };
+
+$('camera').onchange = async e => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const now = Date.now();
+  if (file.lastModified && now - file.lastModified > MAX_PHOTO_AGE_MIN * 60000) {
+    alert('방금 찍은 사진만 올릴 수 있습니다. 다시 찍어 주세요.');
+    return;
+  }
+  const img = await loadImage(file);
+  const pos = state.pos && now - state.pos.time < 3 * 60000 ? state.pos : null;
+  state.shot = { img, takenAt: now, pos };
+  state.selected = null;
+  buildCandidates();
+  show('confirmView');
+};
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { resolve(img); };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+function buildCandidates() {
+  const pos = state.shot.pos;
+  const list = $('cands');
+  list.innerHTML = '';
+  $('saveBtn').disabled = true;
+  let cands = [];
+  if (pos) {
+    cands = state.recipients.filter(r => r.lat != null)
+      .map(r => ({ name: r.name, address: r.address, distance: distanceM(pos, r) }))
+      .sort((a, b) => a.distance - b.distance).slice(0, 3);
+  }
+  const near = cands.filter(c => c.distance <= Math.max(state.autoMatchM, 300));
+  if (near.length && near[0].distance <= state.autoMatchM) {
+    const second = near[1];
+    // 가장 가까운 집이 확실히 더 가까울 때만 자동 선택
+    if (!second || second.distance - near[0].distance > 15) select(near[0].name, near[0].distance, '자동');
+  }
+  $('matchTitle').textContent = !pos ? '위치를 못 찾았어요. 대상자를 골라 주세요'
+    : near.length ? '가까운 대상자' : '근처에 등록된 대상자가 없어요. 찾아서 골라 주세요';
+  near.forEach(c => list.appendChild(candButton(c.name, `${Math.round(c.distance)}m`, c.distance, '근처선택')));
+  if (!near.length) openSearch();
+  else $('searchBox').classList.add('hidden');
+  renderPreview();
+}
+
+function candButton(name, note, distance, method) {
+  const b = document.createElement('button');
+  b.className = 'cand' + (state.selected && state.selected.name === name ? ' sel' : '');
+  b.dataset.name = name;
+  b.innerHTML = `<span>${esc(name)}</span><small>${esc(note)}</small>`;
+  b.onclick = () => select(name, distance, method);
+  return b;
+}
+
+function select(name, distance, method) {
+  state.selected = { name, distance: distance == null ? null : distance, method };
+  document.querySelectorAll('.cand').forEach(b => b.classList.toggle('sel', b.dataset.name === name));
+  $('saveBtn').disabled = false;
+  renderPreview();
+}
+
+function openSearch() {
+  refreshRecipients();
+  $('searchBox').classList.remove('hidden');
+  $('searchInput').value = '';
+  renderSearch('');
+}
+$('searchToggle').onclick = () => $('searchBox').classList.contains('hidden') ? openSearch() : $('searchBox').classList.add('hidden');
+$('searchInput').oninput = e => renderSearch(e.target.value.trim());
+
+function renderSearch(q) {
+  const list = $('searchList');
+  list.innerHTML = '';
+  const pos = state.shot && state.shot.pos;
+  state.recipients
+    .filter(r => !q || r.name.includes(q) || (r.address || '').includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+    .forEach(r => {
+      const d = pos && r.lat != null ? distanceM(pos, r) : null;
+      const note = r.lat == null ? '위치 미등록' : d != null ? fmtDist(d) : (r.address || '');
+      list.appendChild(candButton(r.name, note, d, '직접선택'));
+    });
+  if (!list.children.length) list.innerHTML = '<div style="color:var(--muted);padding:8px">검색 결과가 없습니다.</div>';
+}
+function fmtDist(d) { return d < 1000 ? Math.round(d) + 'm' : (d / 1000).toFixed(1) + 'km'; }
+
+/* ================= 타임스탬프 ================= */
+const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+function stampLines(ts, name) {
+  const d = new Date(ts);
+  const h = d.getHours(), m = String(d.getMinutes()).padStart(2, '0');
+  return [
+    `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEK[d.getDay()]})`,
+    `${h < 12 ? '오전' : '오후'} ${h % 12 || 12}:${m}`,
+    name || '대상자를 선택하세요',
+  ];
+}
+
+function drawStamped(name) {
+  const { img, takenAt } = state.shot;
+  const scale = Math.min(1, MAX_SIZE / Math.max(img.naturalWidth, img.naturalHeight));
+  const W = Math.round(img.naturalWidth * scale), H = Math.round(img.naturalHeight * scale);
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0, W, H);
+  const fs = Math.round(Math.min(W, H) * 0.065);
+  const font = '"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif';
+  const lines = stampLines(takenAt, name);
+  ctx.font = `bold ${fs}px ${font}`;
+  ctx.textBaseline = 'alphabetic';
+  ctx.lineJoin = 'round';
+  const x = Math.round(fs * 0.6);
+  let y = H - Math.round(fs * 0.7) - (lines.length - 1) * Math.round(fs * 1.25);
+  lines.forEach(t => {
+    ctx.lineWidth = fs * 0.16; ctx.strokeStyle = 'rgba(0,0,0,.75)'; ctx.strokeText(t, x, y);
+    ctx.fillStyle = '#fff'; ctx.fillText(t, x, y);
+    y += Math.round(fs * 1.25);
+  });
+  const sfs = Math.round(fs * 0.5);
+  ctx.font = `bold ${sfs}px ${font}`;
+  ctx.textAlign = 'right';
+  ctx.lineWidth = sfs * 0.16; ctx.strokeText('식사캠', W - sfs, sfs * 1.6);
+  ctx.fillText('식사캠', W - sfs, sfs * 1.6);
+  return c;
+}
+
+function renderPreview() {
+  const c = drawStamped(state.selected && state.selected.name);
+  $('preview').src = c.toDataURL('image/jpeg', 0.7);
+}
+
+$('retakeBtn').onclick = () => { show('mainView'); $('shootBtn').click(); };
+
+$('saveBtn').onclick = async () => {
+  const sel = state.selected, shot = state.shot;
+  if (!sel) return;
+  const dataUrl = drawStamped(sel.name).toDataURL('image/jpeg', 0.85);
+  const item = {
+    clientId: `${state.staff}-${shot.takenAt}-${Math.random().toString(36).slice(2, 7)}`,
+    name: sel.name, takenAt: shot.takenAt, method: sel.method,
+    distance: sel.distance,
+    lat: shot.pos ? shot.pos.lat : null, lng: shot.pos ? shot.pos.lng : null,
+    accuracy: shot.pos ? shot.pos.accuracy : null,
+    image: dataUrl.split(',')[1],
+  };
+  await queuePut(item);
+  addToday({ id: item.clientId, name: item.name, takenAt: item.takenAt, done: false });
+  state.shot = null;
+  show('mainView');
+  processQueue();
+};
+
+/* ================= 전송 대기열 (통신이 안 될 때 보관) ================= */
+let dbp;
+function db() {
+  if (!dbp) dbp = new Promise((resolve, reject) => {
+    const req = indexedDB.open('sikcam', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('queue', { keyPath: 'clientId' });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbp;
+}
+async function tx(mode, fn) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const t = d.transaction('queue', mode);
+    const r = fn(t.objectStore('queue'));
+    t.oncomplete = () => resolve(r && r.result);
+    t.onerror = () => reject(t.error);
+  });
+}
+const queuePut = item => tx('readwrite', s => s.put(item));
+const queueDel = id => tx('readwrite', s => s.delete(id));
+const queueAll = () => tx('readonly', s => s.getAll());
+
+async function processQueue() {
+  if (state.uploading || !state.pin) return;
+  state.uploading = true;
+  try {
+    let items = await queueAll();
+    updateQueuePill(items.length);
+    for (const item of items.sort((a, b) => a.takenAt - b.takenAt)) {
+      try {
+        const r = await api('upload', item);
+        await queueDel(item.clientId);
+        markToday(item.clientId);
+        if (r.registered) toast(`${item.name} 님 집 위치를 등록했습니다.`);
+      } catch (e) {
+        // PIN 오류는 사진을 지우지 않고 보관 (PIN을 고치거나 잠금이 풀리면 다시 전송)
+        if (/찾을 수 없습니다|올바르지/.test(e.message || '')) {
+          alert(`전송 실패 (${item.name}): ${e.message}`);
+          await queueDel(item.clientId);
+        }
+        break; // 통신 문제면 다음 기회에 다시 시도
+      }
+      items = await queueAll();
+      updateQueuePill(items.length);
+    }
+  } finally {
+    state.uploading = false;
+    updateQueuePill((await queueAll()).length);
+  }
+}
+function updateQueuePill(n) {
+  const el = $('queuePill');
+  el.textContent = n ? `⏳ 전송 대기 ${n}건` : '✅ 모두 전송됨';
+  el.className = 'pill ' + (n ? 'warn' : 'ok');
+}
+window.addEventListener('online', processQueue);
+setInterval(processQueue, 60000);
+
+/* ================= 오늘 목록 ================= */
+function todayKey() { const d = new Date(); return `sikcam.today.${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; }
+function getToday() { return JSON.parse(lsGet(todayKey()) || '[]'); }
+function addToday(x) { const l = getToday(); l.unshift(x); lsSet(todayKey(), JSON.stringify(l)); renderToday(); }
+function markToday(id) { const l = getToday(); l.forEach(x => { if (x.id === id) x.done = true; }); lsSet(todayKey(), JSON.stringify(l)); renderToday(); }
+function renderToday() {
+  const l = getToday();
+  $('todayCount').textContent = l.length ? `${l.length}건` : '';
+  $('todayList').innerHTML = l.length ? l.map(x => {
+    const t = stampLines(x.takenAt)[1];
+    return `<li><span>${esc(x.name)} <span style="color:var(--muted)">${t}</span></span>` +
+      `<span class="${x.done ? 'st-ok' : 'st-wait'}">${x.done ? '전송 완료' : '전송 대기'}</span></li>`;
+  }).join('') : '<li style="color:var(--muted)">아직 찍은 사진이 없습니다.</li>';
+}
+
+/* ================= 기타 ================= */
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
+function toast(t) {
+  const el = document.createElement('div');
+  el.textContent = t;
+  el.style.cssText = 'position:fixed;left:16px;right:16px;bottom:24px;background:#1b2330;color:#fff;padding:14px;border-radius:12px;text-align:center;z-index:9';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+$('loginBtn').onclick = () => login($('pin').value.trim());
+$('pin').onkeydown = e => { if (e.key === 'Enter') login($('pin').value.trim()); };
+
+/* ================= 앱 설치 · 오프라인 실행 ================= */
+if (!hasGas && 'serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  installPrompt = e;
+  $('installCard').classList.remove('hidden');
+});
+$('installBtn').onclick = async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+  $('installCard').classList.add('hidden');
+};
+window.addEventListener('appinstalled', () => $('installCard').classList.add('hidden'));
+
+if (isDemo) $('demoNote').classList.remove('hidden');
+startGps();
+if (state.pin) login(state.pin); else show('loginView');
+</script>
+</body>
+</html>
