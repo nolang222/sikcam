@@ -163,6 +163,7 @@
 const API_URL = window.SIKCAM_API_URL || '';
 const MAX_SIZE = 1600;        // 저장 사진 긴 변(px)
 const MAX_PHOTO_AGE_MIN = 10; // 이보다 오래된 사진(갤러리 사진 등)은 거부
+const POS_FRESH_MS = 30000;   // 촬영에 쓸 수 있는 위치의 최대 나이
 
 /* ================= 서버 통신 ================= */
 const hasGas = !!(window.google && google.script && google.script.run);
@@ -387,13 +388,24 @@ function requestFreshPosition() {
   return posRequest;
 }
 async function positionForShot(now) {
-  const fresh = () => state.pos && now - state.pos.time < 3 * 60000 ? state.pos : null;
+  // 이웃집으로 옮겨 가며 찍을 때 앞 집 위치가 쓰이지 않도록, 촬영 30초 전보다 오래된 위치는 쓰지 않음
+  const fresh = () => state.pos && now - state.pos.time < POS_FRESH_MS ? state.pos : null;
   if (fresh()) return fresh();
-  // 아직 위치를 받는 중이면 최대 10초 기다림
+  // 아직 위치를 받는 중이면 최대 15초 기다림 (시골에서 GPS를 다시 잡는 데 시간이 걸림)
   const wait = posRequest || requestFreshPosition();
-  await Promise.race([wait, new Promise(r => setTimeout(r, 10000))]);
+  await Promise.race([wait, new Promise(r => setTimeout(r, 15000))]);
   return fresh();
 }
+
+// 화면을 끄고 차로 이동하는 동안에는 휴대폰이 앱의 위치 갱신을 멈춤
+// → 앱이 다시 화면에 나오면 바로 새 위치를 받기 시작
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (!state.pos || Date.now() - state.pos.time > 60000) {
+    setGps('위치 다시 찾는 중…', 'warn');
+    if (!posRequest) requestFreshPosition();
+  }
+});
 function setGps(text, cls) { const el = $('gpsPill'); el.textContent = '📍 ' + text; el.className = 'pill ' + (cls || ''); }
 
 function distanceM(a, b) {
@@ -416,8 +428,8 @@ $('camera').onchange = async e => {
     return;
   }
   const img = await loadImage(file);
-  const fresh = state.pos && now - state.pos.time < 3 * 60000;
-  if (!fresh) setGps('위치 확인 중… (최대 10초)', 'warn');
+  const fresh = state.pos && now - state.pos.time < POS_FRESH_MS;
+  if (!fresh) setGps('위치 확인 중… (최대 15초)', 'warn');
   const pos = await positionForShot(now);
   if (!pos) setGps('위치를 찾지 못했습니다 (이름을 골라 주세요)', 'err');
   state.shot = { img, takenAt: now, pos };
