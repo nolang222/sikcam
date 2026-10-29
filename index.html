@@ -63,11 +63,14 @@
   .st-ok { color: var(--ok); } .st-wait { color: var(--warn); }
   .demo { font-size: 13px; color: var(--warn); text-align: center; margin-bottom: 10px; }
   #searchList { max-height: 260px; overflow-y: auto; margin-top: 8px; }
-  .pad-wrap { position: relative; margin-top: 8px; }
-  canvas.pad { display: block; width: 100%; height: 170px; background: #fff; border: 2px dashed var(--line); border-radius: 12px; touch-action: none; }
-  .pad-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9aa6b8; pointer-events: none; font-size: 16px; }
-  .pad-tools { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 14px; color: var(--muted); }
-  .pad-tools button { padding: 6px 12px; font-size: 14px; }
+  .viewfinder { position: relative; width: 100%; aspect-ratio: 1 / 1; background: #000; border-radius: 12px; overflow: hidden; }
+  .viewfinder video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .viewfinder .grid { position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to right, transparent 33%, rgba(255,255,255,.25) 33%, rgba(255,255,255,.25) calc(33% + 1px), transparent calc(33% + 1px), transparent 66%, rgba(255,255,255,.25) 66%, rgba(255,255,255,.25) calc(66% + 1px), transparent calc(66% + 1px)),
+                linear-gradient(to bottom, transparent 33%, rgba(255,255,255,.25) 33%, rgba(255,255,255,.25) calc(33% + 1px), transparent calc(33% + 1px), transparent 66%, rgba(255,255,255,.25) 66%, rgba(255,255,255,.25) calc(66% + 1px), transparent calc(66% + 1px)); }
+  .shutter-row { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
+  .shutter { width: 76px; height: 76px; border-radius: 50%; border: 5px solid var(--brand); background: #fff; padding: 0; }
+  .shutter:active { background: var(--chip); }
 </style>
 </head>
 <body>
@@ -102,11 +105,6 @@
       <input type="checkbox" id="saveLocal" style="width:20px;height:20px"> 찍은 사진을 휴대폰 갤러리에도 저장
     </label>
   </div>
-  <div class="card hidden" id="staffSignCard">
-    <h2>✍️ 배달인력 서명을 등록해 주세요</h2>
-    <div style="font-size:15px;color:var(--muted);margin-bottom:10px">한 번 등록하면 증빙 기록지의 종사자 칸에 자동으로 들어갑니다.</div>
-    <button class="primary big" style="width:100%" id="staffSignOpen">서명 등록하기</button>
-  </div>
   <div class="card hidden" id="installCard">
     <h2>📲 식사캠을 앱으로 설치하세요</h2>
     <div style="font-size:15px;color:var(--muted);margin-bottom:10px">설치하면 바탕화면 아이콘으로 바로 열리고, 통신이 안 되는 곳에서도 열립니다.</div>
@@ -116,23 +114,18 @@
     <h2>오늘 찍은 사진 <span id="todayCount" style="color:var(--muted);font-weight:normal"></span></h2>
     <ul class="today" id="todayList"></ul>
   </div>
-  <div style="text-align:center"><button id="staffSignChange" style="font-size:14px">✍️ 내 서명 등록·변경</button></div>
 </section>
 
-<!-- 배달인력 서명 등록 -->
-<section class="card hidden" id="staffSignView">
-  <h2>내 서명 (종사자 서명)</h2>
-  <div style="font-size:15px;color:var(--muted)">증빙 기록지의 종사자 칸에 들어갈 서명을 해 주세요.</div>
-  <div class="pad-wrap">
-    <canvas class="pad" id="staffPad"></canvas>
-    <div class="pad-hint" id="staffPadHint">여기에 손가락으로 서명해 주세요</div>
+
+<!-- 1:1 카메라 -->
+<section class="card hidden" id="camView">
+  <div class="viewfinder"><video id="camVideo" playsinline muted autoplay></video><div class="grid"></div></div>
+  <div class="shutter-row">
+    <button id="camCancel">취소</button>
+    <button class="shutter" id="camShutter" aria-label="촬영"></button>
+    <button id="camFallback" style="font-size:14px">기본 카메라</button>
   </div>
-  <div class="pad-tools"><span></span><button id="staffPadClear">지우기</button></div>
-  <div class="row" style="margin-top:14px">
-    <button class="big" id="staffSignCancel">취소</button>
-    <button class="primary big" id="staffSignSave">서명 저장</button>
-  </div>
-  <div class="msg" id="staffSignMsg"></div>
+  <div class="msg" id="camMsg" style="text-align:center;color:var(--muted)">네모 칸 안에 보이는 그대로 저장됩니다</div>
 </section>
 
 <!-- 촬영 후 확인 -->
@@ -145,15 +138,6 @@
     <input type="search" id="searchInput" placeholder="이름 검색">
     <div class="cands" id="searchList"></div>
   </div>
-  <h2 style="margin-top:18px">이용자 서명</h2>
-  <div class="pad-wrap">
-    <canvas class="pad" id="userPad"></canvas>
-    <div class="pad-hint" id="userPadHint">여기에 손가락으로 서명해 주세요</div>
-  </div>
-  <div class="pad-tools">
-    <span>부재 중이면 비워 두고 저장하세요</span>
-    <button id="userPadClear">지우기</button>
-  </div>
   <div class="row" style="margin-top:14px">
     <button class="big" id="retakeBtn">다시 찍기</button>
     <button class="primary big" id="saveBtn" disabled>저장·전송</button>
@@ -164,7 +148,7 @@
 /* ================= 설정 ================= */
 // 앱으로 설치해 쓸 때(GitHub Pages)는 config.js 에 적은 웹앱 URL로 통신합니다.
 const API_URL = window.SIKCAM_API_URL || '';
-const MAX_SIZE = 1600;        // 저장 사진 긴 변(px)
+const SQUARE_SIZE = 1280;     // 저장 사진 한 변(px, 정사각형)
 const MAX_PHOTO_AGE_MIN = 10; // 이보다 오래된 사진(갤러리 사진 등)은 거부
 const POS_FRESH_MS = 30000;   // 촬영에 쓸 수 있는 위치의 최대 나이
 
@@ -218,7 +202,6 @@ function demoApi(action, data) {
     ] }));
   }
   if (action === 'upload') return wait(800).then(() => ({ ok: true, registered: data.lat != null && data.distance == null }));
-  if (action === 'staffSign') return wait(500).then(() => ({ ok: true }));
 }
 
 /* ================= 상태 ================= */
@@ -239,83 +222,10 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
 
 function show(view) {
-  ['loginView', 'mainView', 'confirmView', 'staffSignView'].forEach(v => $(v).classList.toggle('hidden', v !== view));
+  ['loginView', 'mainView', 'camView', 'confirmView'].forEach(v => $(v).classList.toggle('hidden', v !== view));
   window.scrollTo(0, 0);
-  // 서명판은 화면에 보일 때 크기를 맞춰야 선이 손가락 위치에 그려짐
-  if (view === 'confirmView') userPad.fit();
-  if (view === 'staffSignView') staffPad.fit();
+  if (view !== 'camView') stopCamera();
 }
-
-/* ================= 서명판 ================= */
-function createPad(canvas, hint) {
-  const ctx = canvas.getContext('2d');
-  let drawing = false, empty = true, last = null;
-  const pos = e => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-  function fit() {
-    const r = canvas.getBoundingClientRect();
-    if (!r.width) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(r.width * dpr); canvas.height = Math.round(r.height * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.lineWidth = 3.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#111';
-    clear();
-  }
-  function clear() { ctx.clearRect(0, 0, canvas.width, canvas.height); empty = true; hint.style.display = ''; }
-  canvas.addEventListener('pointerdown', e => {
-    e.preventDefault(); canvas.setPointerCapture(e.pointerId);
-    drawing = true; last = pos(e);
-    ctx.beginPath(); ctx.arc(last.x, last.y, 1.6, 0, Math.PI * 2); ctx.fillStyle = '#111'; ctx.fill();
-    if (empty) { empty = false; hint.style.display = 'none'; }
-  });
-  canvas.addEventListener('pointermove', e => {
-    if (!drawing) return;
-    const p = pos(e);
-    ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke();
-    last = p;
-  });
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => canvas.addEventListener(t, () => { drawing = false; }));
-  // 서명 부분만 잘라 투명 배경 PNG로 (기록지 칸에 넣기 좋게)
-  function toBase64() {
-    if (empty) return '';
-    const { width: w, height: h } = canvas;
-    const px = ctx.getImageData(0, 0, w, h).data;
-    let x0 = w, y0 = h, x1 = 0, y1 = 0;
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      if (px[(y * w + x) * 4 + 3] > 0) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-    }
-    if (x1 < x0) return '';
-    const m = 8, out = document.createElement('canvas');
-    const sw = x1 - x0 + 1 + m * 2, sh = y1 - y0 + 1 + m * 2;
-    const scale = Math.min(1, 600 / sw);
-    out.width = Math.round(sw * scale); out.height = Math.round(sh * scale);
-    out.getContext('2d').drawImage(canvas, x0 - m, y0 - m, sw, sh, 0, 0, out.width, out.height);
-    return out.toDataURL('image/png').split(',')[1];
-  }
-  return { fit, clear, toBase64, isEmpty: () => empty };
-}
-const userPad = createPad($('userPad'), $('userPadHint'));
-const staffPad = createPad($('staffPad'), $('staffPadHint'));
-$('userPadClear').onclick = () => userPad.clear();
-$('staffPadClear').onclick = () => staffPad.clear();
-
-// 배달인력 서명 등록
-$('staffSignOpen').onclick = $('staffSignChange').onclick = () => { $('staffSignMsg').textContent = ''; show('staffSignView'); };
-$('staffSignCancel').onclick = () => show('mainView');
-$('staffSignSave').onclick = async () => {
-  if (staffPad.isEmpty()) { $('staffSignMsg').textContent = '서명을 해 주세요.'; $('staffSignMsg').className = 'msg err'; return; }
-  $('staffSignSave').disabled = true;
-  $('staffSignMsg').textContent = '저장 중…'; $('staffSignMsg').className = 'msg';
-  try {
-    await api('staffSign', { image: staffPad.toBase64() });
-    state.hasStaffSign = true; lsSet('sikcam.staffSign', '1');
-    $('staffSignCard').classList.add('hidden');
-    show('mainView');
-    toast('서명을 저장했습니다.');
-  } catch (e) {
-    $('staffSignMsg').textContent = '저장 실패: ' + (e.message || e) + ' (통신되는 곳에서 다시 해 주세요)';
-    $('staffSignMsg').className = 'msg err';
-  } finally { $('staffSignSave').disabled = false; }
-};
 
 /* ================= 로그인 ================= */
 async function login(pin) {
@@ -326,9 +236,7 @@ async function login(pin) {
     const r = await api('login', {});
     state.staff = r.staff;
     state.autoMatchM = (r.settings && r.settings.autoMatchM) || 80;
-    state.hasStaffSign = !!r.hasSignature;
     lsSet('sikcam.pin', pin); lsSet('sikcam.staff', r.staff);
-    lsSet('sikcam.staffSign', r.hasSignature ? '1' : '');
     enterMain();
   } catch (e) {
     // 통신이 안 될 때는 이전에 로그인한 정보로 계속 사용
@@ -348,7 +256,6 @@ function logout() {
 function enterMain() {
   $('who').innerHTML = `${esc(state.staff)} 님<br><button id="logoutBtn">로그아웃</button>`;
   $('logoutBtn').onclick = logout;
-  $('staffSignCard').classList.toggle('hidden', !!(state.hasStaffSign || lsGet('sikcam.staffSign')));
   show('mainView');
   refreshRecipients();
   renderToday();
@@ -420,7 +327,53 @@ function distanceM(a, b) {
 
 /* ================= 촬영 ================= */
 // 카메라가 열려 있는 동안 최신 대상자 명단을 받아 둠 (시트에 새로 넣은 대상자 반영)
-$('shootBtn').onclick = () => { $('camera').value = ''; $('camera').click(); refreshRecipients(); requestFreshPosition(); };
+$('shootBtn').onclick = () => { refreshRecipients(); requestFreshPosition(); openCamera(); };
+
+/* ---- 앱 안의 1:1 카메라 (안 되면 휴대폰 기본 카메라로) ---- */
+let camStream = null;
+async function openCamera() {
+  // 앱 안 카메라를 못 쓰는 기기는 바로 기본 카메라 (버튼을 누른 순간에 열어야 휴대폰이 막지 않음)
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { openNativeCamera(); return; }
+  $('camMsg').textContent = '네모 칸 안에 보이는 그대로 저장됩니다';
+  $('camShutter').disabled = false;
+  show('camView');
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1920 } },
+      audio: false,
+    });
+    $('camVideo').srcObject = camStream;
+    await $('camVideo').play().catch(() => {});
+  } catch (e) {
+    stopCamera();
+    // 카메라 권한을 거부했거나 앱 안 카메라를 쓸 수 없는 경우
+    $('camShutter').disabled = true;
+    $('camMsg').textContent = e && e.name === 'NotAllowedError'
+      ? '카메라 권한을 허용해 주세요. 또는 오른쪽 "기본 카메라"를 눌러 찍으세요.'
+      : '앱 카메라를 열 수 없습니다. 오른쪽 "기본 카메라"를 눌러 찍으세요.';
+  }
+}
+function stopCamera() {
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+  const v = $('camVideo'); if (v) v.srcObject = null;
+}
+function openNativeCamera() { show('mainView'); $('camera').value = ''; $('camera').click(); }
+
+$('camCancel').onclick = () => show('mainView');
+$('camFallback').onclick = openNativeCamera;
+$('camShutter').onclick = async () => {
+  const v = $('camVideo');
+  if (!v.videoWidth) return;
+  // 화면의 네모 칸과 같은 가운데 정사각형을 잘라 냄
+  const side = Math.min(v.videoWidth, v.videoHeight);
+  const c = document.createElement('canvas');
+  c.width = c.height = side;
+  c.getContext('2d').drawImage(v, (v.videoWidth - side) / 2, (v.videoHeight - side) / 2, side, side, 0, 0, side, side);
+  const now = Date.now();
+  stopCamera();
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+  handleShot(await loadImage(blob), now);
+};
 
 $('camera').onchange = async e => {
   const file = e.target.files && e.target.files[0];
@@ -430,7 +383,10 @@ $('camera').onchange = async e => {
     alert('방금 찍은 사진만 올릴 수 있습니다. 다시 찍어 주세요.');
     return;
   }
-  const img = await loadImage(file);
+  handleShot(await loadImage(file), now);
+};
+
+async function handleShot(img, now) {
   const fresh = state.pos && now - state.pos.time < POS_FRESH_MS;
   if (!fresh) setGps('위치 확인 중… (최대 15초)', 'warn');
   const pos = await positionForShot(now);
@@ -439,7 +395,7 @@ $('camera').onchange = async e => {
   state.selected = null;
   buildCandidates();
   show('confirmView');
-};
+}
 
 function loadImage(file) {
   return new Promise((resolve, reject) => {
@@ -531,12 +487,14 @@ function stampLines(ts, name) {
 
 function drawStamped(name) {
   const { img, takenAt } = state.shot;
-  const scale = Math.min(1, MAX_SIZE / Math.max(img.naturalWidth, img.naturalHeight));
-  const W = Math.round(img.naturalWidth * scale), H = Math.round(img.naturalHeight * scale);
+  // 정사각형으로 가운데를 잘라 저장 (증빙 사진 대지 칸에 꽉 차게 들어가도록)
+  const side = Math.min(img.naturalWidth, img.naturalHeight);
+  const sx = (img.naturalWidth - side) / 2, sy = (img.naturalHeight - side) / 2;
+  const W = Math.min(side, SQUARE_SIZE), H = W;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const ctx = c.getContext('2d');
-  ctx.drawImage(img, 0, 0, W, H);
+  ctx.drawImage(img, sx, sy, side, side, 0, 0, W, H);
   const fs = Math.round(Math.min(W, H) * 0.065);
   const font = '"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif';
   const lines = stampLines(takenAt, name);
@@ -563,14 +521,14 @@ function renderPreview() {
   $('preview').src = c.toDataURL('image/jpeg', 0.7);
 }
 
-$('retakeBtn').onclick = () => { show('mainView'); $('shootBtn').click(); };
+$('retakeBtn').onclick = () => { $('shootBtn').click(); };
 
 $('saveBtn').onclick = async () => {
   const sel = state.selected, shot = state.shot;
   if (!sel) return;
-  if (userPad.isEmpty() && !confirm('이용자 서명 없이 저장합니다 (부재).\n서명은 나중에 종이에 받으세요. 계속할까요?')) return;
-  const signature = userPad.toBase64();
   const dataUrl = drawStamped(sel.name).toDataURL('image/jpeg', 0.85);
+  // 휴대폰 저장(다운로드)은 버튼을 누른 직후에 해야 휴대폰이 막지 않음
+  if ($('saveLocal').checked) saveToPhone(dataUrl, shot.takenAt, sel.name);
   const item = {
     clientId: `${state.staff}-${shot.takenAt}-${Math.random().toString(36).slice(2, 7)}`,
     name: sel.name, takenAt: shot.takenAt, method: sel.method,
@@ -578,10 +536,8 @@ $('saveBtn').onclick = async () => {
     lat: shot.pos ? shot.pos.lat : null, lng: shot.pos ? shot.pos.lng : null,
     accuracy: shot.pos ? shot.pos.accuracy : null,
     image: dataUrl.split(',')[1],
-    signature,
   };
   await queuePut(item);
-  if ($('saveLocal').checked) saveToPhone(dataUrl, item.takenAt, item.name);
   addToday({ id: item.clientId, name: item.name, takenAt: item.takenAt, done: false });
   state.shot = null;
   show('mainView');
