@@ -98,6 +98,9 @@
       <span class="pill" id="queuePill" style="cursor:pointer">전송 대기 0건</span>
     </div>
     <div class="msg err hidden" id="queueErr" style="cursor:pointer"></div>
+    <label style="display:flex;align-items:center;gap:8px;margin:12px 0 0;font-weight:normal;font-size:15px;color:var(--muted)">
+      <input type="checkbox" id="saveLocal" style="width:20px;height:20px"> 찍은 사진을 휴대폰 갤러리에도 저장
+    </label>
   </div>
   <div class="card hidden" id="staffSignCard">
     <h2>✍️ 배달인력 서명을 등록해 주세요</h2>
@@ -578,11 +581,32 @@ $('saveBtn').onclick = async () => {
     signature,
   };
   await queuePut(item);
+  if ($('saveLocal').checked) saveToPhone(dataUrl, item.takenAt, item.name);
   addToday({ id: item.clientId, name: item.name, takenAt: item.takenAt, done: false });
   state.shot = null;
   show('mainView');
   processQueue();
 };
+
+/* ================= 휴대폰에 사진 저장 ================= */
+// 웹앱은 갤러리에 직접 쓸 수 없어서 "다운로드"로 저장 → 갤러리의 Download(다운로드) 앨범에 보임
+$('saveLocal').checked = lsGet('sikcam.saveLocal') !== '0';
+$('saveLocal').onchange = e => lsSet('sikcam.saveLocal', e.target.checked ? '1' : '0');
+
+function saveToPhone(dataUrl, takenAt, name) {
+  try {
+    const d = new Date(takenAt), p = n => String(n).padStart(2, '0');
+    const fileName = `식사캠_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}_${name}.jpg`;
+    const bin = atob(dataUrl.split(',')[1]);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = fileName;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch (e) { /* 저장이 안 돼도 전송에는 영향 없음 */ }
+}
 
 /* ================= 전송 대기열 (통신이 안 될 때 보관) ================= */
 let dbp;
